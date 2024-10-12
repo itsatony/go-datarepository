@@ -7,21 +7,34 @@ import (
 	"time"
 )
 
+// EntityIdentifier represents a unique identifier for an entity
+type EntityIdentifier interface {
+	// String returns a string representation of the identifier
+	String() string
+}
+
+// SimpleIdentifier is a basic implementation of EntityIdentifier
+type SimpleIdentifier string
+
+func (si SimpleIdentifier) String() string {
+	return string(si)
+}
+
 // DataRepository defines a generic interface for data storage operations
 type DataRepository interface {
 	// Basic CRUD operations
-	Create(ctx context.Context, key string, value interface{}) error
-	Read(ctx context.Context, key string, value interface{}) error
-	Update(ctx context.Context, key string, value interface{}) error
-	Delete(ctx context.Context, key string) error
+	Create(ctx context.Context, identifier EntityIdentifier, value interface{}) error
+	Read(ctx context.Context, identifier EntityIdentifier, value interface{}) error
+	Update(ctx context.Context, identifier EntityIdentifier, value interface{}) error
+	Delete(ctx context.Context, identifier EntityIdentifier) error
 
 	// Additional operations
-	List(ctx context.Context, pattern string) ([]string, error)
-	Search(ctx context.Context, query string, offset, limit int, sortBy, sortDir string) ([]string, error)
+	List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, error)
+	Search(ctx context.Context, query string, offset, limit int, sortBy, sortDir string) ([]EntityIdentifier, error)
 
 	// Locking mechanisms
-	AcquireLock(ctx context.Context, key string, ttl time.Duration) (bool, error)
-	ReleaseLock(ctx context.Context, key string) error
+	AcquireLock(ctx context.Context, identifier EntityIdentifier, ttl time.Duration) (bool, error)
+	ReleaseLock(ctx context.Context, identifier EntityIdentifier) error
 
 	// Publish-Subscribe operations
 	Publish(ctx context.Context, channel string, message interface{}) error
