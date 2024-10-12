@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,22 +40,50 @@ var (
 )
 
 type RedisConfig struct {
-	Addrs            []string
+	ConnectionString string
+}
+
+type redisServerInfo struct {
+	Mode             string
+	Name             string
 	MasterName       string
 	SentinelUsername string
 	SentinelPassword string
 	Username         string
 	Password         string
 	DB               int
-	Mode             string
-	KeyPrefix        string
-	KeySeparator     string
+	Addrs            []string
 }
 
 func (c RedisConfig) GetConnectionString() string {
-	return fmt.Sprintf("%s;%s;%s;%s;%s;%s;%d;%s",
-		c.Mode, c.MasterName, c.SentinelUsername, c.SentinelPassword,
-		c.Username, c.Password, c.DB, strings.Join(c.Addrs, ","))
+	return c.ConnectionString
+}
+
+func parseRedisServerInfoFromConfigString(redisConfigString string) (redisServerInfo, error) {
+	rsi := redisServerInfo{}
+	baseinfo := strings.Split(redisConfigString, ";")
+	if len(baseinfo) < 9 {
+		return rsi, fmt.Errorf("%w: invalid connection string format", ErrInvalidInput)
+	}
+
+	rsi.Mode = baseinfo[0]
+	rsi.Name = baseinfo[1]
+	rsi.MasterName = baseinfo[2]
+	rsi.SentinelUsername = baseinfo[3]
+	rsi.SentinelPassword = baseinfo[4]
+	rsi.Username = baseinfo[5]
+	rsi.Password = baseinfo[6]
+
+	db, err := strconv.Atoi(baseinfo[7])
+	if err != nil {
+		rsi.DB = 0
+	} else {
+		rsi.DB = db
+	}
+
+	rsi.Addrs = strings.Split(baseinfo[8], ",")
+
+	return rsi, nil
 }
 
 type RedisIdentifier struct {
@@ -75,34 +104,48 @@ type RedisRepository struct {
 func NewRedisRepository(config Config) (DataRepository, error) {
 	redisConfig, ok := config.(RedisConfig)
 	if !ok {
-		return nil, fmt.Errorf("invalid config type for Redis repository")
+		return nil, fmt.Errorf("%w: invalid config type for Redis repository", ErrInvalidInput)
 	}
 
-	options := &redis.UniversalOptions{
-		Addrs:            redisConfig.Addrs,
-		MasterName:       redisConfig.MasterName,
-		SentinelUsername: redisConfig.SentinelUsername,
-		SentinelPassword: redisConfig.SentinelPassword,
-		Username:         redisConfig.Username,
-		Password:         redisConfig.Password,
-		DB:               redisConfig.DB,
+	serverInfo, err := parseRedisServerInfoFromConfigString(redisConfig.ConnectionString)
+	if err != nil {
+		return nil, err
 	}
 
-	client := redis.NewUniversalClient(options)
+	var client redis.UniversalClient
 
-	prefix := redisConfig.KeyPrefix
-	if prefix == "" {
-		prefix = DefaultKeyPrefix
-	}
-	separator := redisConfig.KeySeparator
-	if separator == "" {
-		separator = DefaultKeySeparator
+	switch serverInfo.Mode {
+	case "single":
+		client = redis.NewClient(&redis.Options{
+			Addr:     serverInfo.Addrs[0],
+			DB:       serverInfo.DB,
+			Username: serverInfo.Username,
+			Password: serverInfo.Password,
+		})
+	case "sentinel":
+		client = redis.NewFailoverClient(&redis.FailoverOptions{
+			MasterName:       serverInfo.MasterName,
+			SentinelAddrs:    serverInfo.Addrs,
+			SentinelUsername: serverInfo.SentinelUsername,
+			SentinelPassword: serverInfo.SentinelPassword,
+			DB:               serverInfo.DB,
+			Username:         serverInfo.Username,
+			Password:         serverInfo.Password,
+		})
+	case "cluster":
+		client = redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs:    serverInfo.Addrs,
+			Username: serverInfo.Username,
+			Password: serverInfo.Password,
+		})
+	default:
+		return nil, fmt.Errorf("%w: unsupported Redis mode", ErrInvalidInput)
 	}
 
 	return &RedisRepository{
 		client:    client,
-		prefix:    prefix,
-		separator: separator,
+		prefix:    serverInfo.Name,
+		separator: ":",
 	}, nil
 }
 
