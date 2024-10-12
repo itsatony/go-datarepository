@@ -184,43 +184,80 @@ func (r *RedisRepository) keyToIdentifier(key string) (EntityIdentifier, error) 
 func (r *RedisRepository) Create(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
 	key, err := r.identifierToKey(identifier)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
+
+	exists, err := r.client.Exists(ctx, key).Result()
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrOperationFailed, err)
+	}
+	if exists == 1 {
+		return ErrAlreadyExists
+	}
+
 	return r.client.JSONSet(ctx, key, "$", value).Err()
 }
 
 func (r *RedisRepository) Read(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
 	key, err := r.identifierToKey(identifier)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
+
 	data, err := r.client.JSONGet(ctx, key, "$").Result()
 	if err != nil {
-		return err
+		if err == redis.Nil {
+			return ErrNotFound
+		}
+		return fmt.Errorf("%w: %v", ErrOperationFailed, err)
 	}
+
 	return json.Unmarshal([]byte(data), value)
 }
 
 func (r *RedisRepository) Update(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
-	return r.Create(ctx, identifier, value) // In Redis, SET can be used for both create and update
+	key, err := r.identifierToKey(identifier)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
+	}
+
+	exists, err := r.client.Exists(ctx, key).Result()
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrOperationFailed, err)
+	}
+	if exists == 0 {
+		return ErrNotFound
+	}
+
+	return r.client.JSONSet(ctx, key, "$", value).Err()
 }
 
 func (r *RedisRepository) Delete(ctx context.Context, identifier EntityIdentifier) error {
 	key, err := r.identifierToKey(identifier)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
-	return r.client.Del(ctx, key).Err()
+
+	result, err := r.client.Del(ctx, key).Result()
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrOperationFailed, err)
+	}
+	if result == 0 {
+		return ErrNotFound
+	}
+
+	return nil
 }
 
 func (r *RedisRepository) List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, error) {
 	patternKey, err := r.identifierToKey(pattern)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
+
 	keys, err := r.client.Keys(ctx, patternKey+"*").Result()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrOperationFailed, err)
 	}
 
 	identifiers := make([]EntityIdentifier, 0, len(keys))
@@ -234,6 +271,7 @@ func (r *RedisRepository) List(ctx context.Context, pattern EntityIdentifier) ([
 		}
 		identifiers = append(identifiers, identifier)
 	}
+
 	return identifiers, nil
 }
 
@@ -245,7 +283,7 @@ func (r *RedisRepository) Search(ctx context.Context, query string, offset, limi
 	}
 	res, err := r.client.Do(ctx, args...).Result()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrOperationFailed, err)
 	}
 
 	array, ok := res.([]interface{})
@@ -284,19 +322,31 @@ func (r *RedisRepository) Search(ctx context.Context, query string, offset, limi
 func (r *RedisRepository) AcquireLock(ctx context.Context, identifier EntityIdentifier, ttl time.Duration) (bool, error) {
 	key, err := r.identifierToKey(identifier)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
 	lockKey := key + r.separator + KeyPartLock
-	return r.client.SetNX(ctx, lockKey, 1, ttl).Result()
+	acquired, err := r.client.SetNX(ctx, lockKey, 1, ttl).Result()
+	if err != nil {
+		return false, fmt.Errorf("%w: %v", ErrOperationFailed, err)
+	}
+	return acquired, nil
 }
 
 func (r *RedisRepository) ReleaseLock(ctx context.Context, identifier EntityIdentifier) error {
 	key, err := r.identifierToKey(identifier)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
 	lockKey := key + r.separator + KeyPartLock
-	return r.client.Del(ctx, lockKey).Err()
+	result, err := r.client.Del(ctx, lockKey).Result()
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrOperationFailed, err)
+	}
+	if result == 0 {
+		return ErrNotFound
+	}
+
+	return nil
 }
 
 func (r *RedisRepository) Publish(ctx context.Context, channel string, message interface{}) error {

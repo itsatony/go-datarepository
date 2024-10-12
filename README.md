@@ -2,6 +2,10 @@
 
 `go-datarepository` is a flexible and extensible data repository interface for Go applications. It provides a common interface for various data storage solutions, allowing you to easily switch between different backends or use multiple storage systems in your application.
 
+## Version
+
+v0.2.0
+
 ## Features
 
 - Generic interface for common data operations (CRUD, List, Search)
@@ -12,6 +16,7 @@
 - Redis implementation included out-of-the-box with comprehensive key management and validation
 - In-memory implementation for testing and prototyping
 - Factory pattern for easy repository creation and registration
+- Consistent error handling across different implementations
 
 ## Installation
 
@@ -51,25 +56,31 @@ func main() {
 	}
 	defer redisRepo.Close()
 
-	// Create an in-memory repository
-	memoryConfig := datarepository.MemoryConfig{}
-	memoryRepo, err := datarepository.CreateDataRepository("memory", memoryConfig)
-	if err != nil {
-		log.Fatalf("Failed to create in-memory repository: %v", err)
-	}
-	defer memoryRepo.Close()
-
-	// Use the repositories...
+	// Use the repository...
 }
 ```
 
-### Available Repository Types
+### Error Handling
 
-You can check the available repository types using the `GetRegisteredRepositoryTypes` function:
+The package provides consistent error types across different implementations:
+
+- `ErrNotFound`: Returned when an entity is not found
+- `ErrAlreadyExists`: Returned when trying to create an entity that already exists
+- `ErrInvalidIdentifier`: Returned when an invalid identifier is provided
+- `ErrInvalidInput`: Returned when invalid input is provided to a repository method
+- `ErrOperationFailed`: Returned when a repository operation fails for a reason other than those above
+
+You can use the provided helper functions to check for specific error types:
 
 ```go
-types := datarepository.GetRegisteredRepositoryTypes()
-fmt.Println("Available repository types:", types)
+err := repo.Create(ctx, identifier, value)
+if datarepository.IsAlreadyExistsError(err) {
+	// Handle already exists error
+} else if datarepository.IsInvalidIdentifierError(err) {
+	// Handle invalid identifier error
+} else if err != nil {
+	// Handle other errors
+}
 ```
 
 ## Extending with New Backends
@@ -89,28 +100,6 @@ func init() {
 	datarepository.RegisterDataRepository("mynew", NewMyNewRepository)
 }
 ```
-
-After registration, you can create an instance of your new repository using:
-
-```go
-myConfig := MyNewConfig{} // Implement the Config interface
-repo, err := datarepository.CreateDataRepository("mynew", myConfig)
-```
-
-## Key Features of the Redis Implementation
-
-- Comprehensive key management and validation
-- Support for complex identifiers using `RedisIdentifier`
-- Automatic key assembly and parsing
-- Robust error handling and input validation
-- Efficient search result parsing
-
-## Key Features of the In-Memory Implementation
-
-- Thread-safe operations using sync.RWMutex
-- Simple pattern matching for List operations
-- Basic search functionality with sorting and pagination
-- Efficient Publish-Subscribe mechanism
 
 ## Contributing
 

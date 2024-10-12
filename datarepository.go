@@ -4,31 +4,77 @@ package datarepository
 
 import (
 	"context"
+	"errors"
 	"time"
+)
+
+var (
+	// ErrNotFound is returned when an entity is not found in the repository
+	ErrNotFound = errors.New("entity not found")
+
+	// ErrAlreadyExists is returned when trying to create an entity that already exists
+	ErrAlreadyExists = errors.New("entity already exists")
+
+	// ErrInvalidIdentifier is returned when an invalid identifier is provided
+	ErrInvalidIdentifier = errors.New("invalid identifier")
+
+	// ErrInvalidInput is returned when invalid input is provided to a repository method
+	ErrInvalidInput = errors.New("invalid input")
+
+	// ErrOperationFailed is returned when a repository operation fails for a reason other than those above
+	ErrOperationFailed = errors.New("operation failed")
 )
 
 // DataRepository defines a generic interface for data storage operations
 type DataRepository interface {
-	// Basic CRUD operations
+	// Create adds a new entity to the repository.
+	// Returns ErrAlreadyExists if the entity already exists.
+	// Returns ErrInvalidIdentifier if the identifier is invalid.
 	Create(ctx context.Context, identifier EntityIdentifier, value interface{}) error
+
+	// Read retrieves an entity from the repository.
+	// Returns ErrNotFound if the entity does not exist.
+	// Returns ErrInvalidIdentifier if the identifier is invalid.
 	Read(ctx context.Context, identifier EntityIdentifier, value interface{}) error
+
+	// Update modifies an existing entity in the repository.
+	// Returns ErrNotFound if the entity does not exist.
+	// Returns ErrInvalidIdentifier if the identifier is invalid.
 	Update(ctx context.Context, identifier EntityIdentifier, value interface{}) error
+
+	// Delete removes an entity from the repository.
+	// Returns ErrNotFound if the entity does not exist.
+	// Returns ErrInvalidIdentifier if the identifier is invalid.
 	Delete(ctx context.Context, identifier EntityIdentifier) error
 
-	// Additional operations
+	// List returns entities matching the given pattern.
+	// Returns ErrInvalidIdentifier if the pattern is invalid.
 	List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, error)
+
+	// Search finds entities based on the given query.
+	// Returns ErrInvalidInput if the search parameters are invalid.
 	Search(ctx context.Context, query string, offset, limit int, sortBy, sortDir string) ([]EntityIdentifier, error)
 
-	// Locking mechanisms
+	// AcquireLock attempts to acquire a lock for the given identifier.
+	// Returns ErrInvalidIdentifier if the identifier is invalid.
 	AcquireLock(ctx context.Context, identifier EntityIdentifier, ttl time.Duration) (bool, error)
+
+	// ReleaseLock releases a previously acquired lock.
+	// Returns ErrNotFound if the lock does not exist.
+	// Returns ErrInvalidIdentifier if the identifier is invalid.
 	ReleaseLock(ctx context.Context, identifier EntityIdentifier) error
 
-	// Publish-Subscribe operations
+	// Publish sends a message to the specified channel.
 	Publish(ctx context.Context, channel string, message interface{}) error
+
+	// Subscribe returns a channel that receives messages from the specified channel.
 	Subscribe(ctx context.Context, channel string) (chan interface{}, error)
 
-	// Misc
+	// Ping checks the connection to the repository.
+	// Returns ErrOperationFailed if the connection fails.
 	Ping(ctx context.Context) error
+
+	// Close releases any resources held by the repository.
 	Close() error
 }
 
@@ -63,4 +109,29 @@ func init() {
 	RegisterDataRepository("memory", NewMemoryRepository)
 
 	// Add any additional repository registrations here
+}
+
+// IsNotFoundError checks if the given error is an ErrNotFound error
+func IsNotFoundError(err error) bool {
+	return errors.Is(err, ErrNotFound)
+}
+
+// IsAlreadyExistsError checks if the given error is an ErrAlreadyExists error
+func IsAlreadyExistsError(err error) bool {
+	return errors.Is(err, ErrAlreadyExists)
+}
+
+// IsInvalidIdentifierError checks if the given error is an ErrInvalidIdentifier error
+func IsInvalidIdentifierError(err error) bool {
+	return errors.Is(err, ErrInvalidIdentifier)
+}
+
+// IsInvalidInputError checks if the given error is an ErrInvalidInput error
+func IsInvalidInputError(err error) bool {
+	return errors.Is(err, ErrInvalidInput)
+}
+
+// IsOperationFailedError checks if the given error is an ErrOperationFailed error
+func IsOperationFailedError(err error) bool {
+	return errors.Is(err, ErrOperationFailed)
 }

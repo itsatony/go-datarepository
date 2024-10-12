@@ -52,7 +52,7 @@ func (r *MemoryRepository) Create(ctx context.Context, identifier EntityIdentifi
 
 	key := identifier.String()
 	if _, exists := r.data[key]; exists {
-		return fmt.Errorf("entity already exists")
+		return ErrAlreadyExists
 	}
 	r.data[key] = value
 	return nil
@@ -68,7 +68,7 @@ func (r *MemoryRepository) Read(ctx context.Context, identifier EntityIdentifier
 		*(value.(*interface{})) = data
 		return nil
 	}
-	return fmt.Errorf("entity not found")
+	return ErrNotFound
 }
 
 func (r *MemoryRepository) Update(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
@@ -77,7 +77,7 @@ func (r *MemoryRepository) Update(ctx context.Context, identifier EntityIdentifi
 
 	key := identifier.String()
 	if _, exists := r.data[key]; !exists {
-		return fmt.Errorf("entity not found")
+		return ErrNotFound
 	}
 	r.data[key] = value
 	return nil
@@ -89,7 +89,7 @@ func (r *MemoryRepository) Delete(ctx context.Context, identifier EntityIdentifi
 
 	key := identifier.String()
 	if _, exists := r.data[key]; !exists {
-		return fmt.Errorf("entity not found")
+		return ErrNotFound
 	}
 	delete(r.data, key)
 	return nil
@@ -101,7 +101,7 @@ func (r *MemoryRepository) List(ctx context.Context, pattern EntityIdentifier) (
 
 	regex, err := regexp.Compile(strings.ReplaceAll(pattern.String(), "*", ".*"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid pattern: %v", err)
+		return nil, fmt.Errorf("%w: invalid pattern", ErrInvalidInput)
 	}
 
 	var result []EntityIdentifier
@@ -117,6 +117,9 @@ func (r *MemoryRepository) Search(ctx context.Context, query string, offset, lim
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if offset < 0 || limit < 0 {
+		return nil, fmt.Errorf("%w: invalid offset or limit", ErrInvalidInput)
+	}
 	// This is a simple implementation. In a real-world scenario, you'd want to implement
 	// a more sophisticated search algorithm.
 	var result []EntityIdentifier
@@ -162,6 +165,9 @@ func (r *MemoryRepository) ReleaseLock(ctx context.Context, identifier EntityIde
 	defer r.mu.Unlock()
 
 	key := identifier.String()
+	if _, exists := r.locks[key]; !exists {
+		return ErrNotFound
+	}
 	delete(r.locks, key)
 	return nil
 }
