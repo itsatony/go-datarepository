@@ -326,7 +326,3 @@ func (r *RedisRepository) Ping(ctx context.Context) error {
 func (r *RedisRepository) Close() error {
 	return r.client.Close()
 }
-
-// func init() {
-// 	RegisterDataRepository("redis", NewRedisRepository)
-// }

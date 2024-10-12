@@ -10,6 +10,8 @@
 - Publish-Subscribe operations
 - Extensible design for easy addition of new storage backends
 - Redis implementation included out-of-the-box with comprehensive key management and validation
+- In-memory implementation for testing and prototyping
+- Factory pattern for easy repository creation and registration
 
 ## Installation
 
@@ -21,7 +23,7 @@ go get github.com/itsatony/go-datarepository
 
 ## Usage
 
-Here's a quick example of how to use the Redis implementation of the `DataRepository` interface:
+To create a repository, use the `CreateDataRepository` function with the desired repository type and configuration:
 
 ```go
 package main
@@ -30,92 +32,44 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/itsatony/go-datarepository"
 )
 
 func main() {
-	config := datarepository.RedisConfig{
+	// Create a Redis repository
+	redisConfig := datarepository.RedisConfig{
 		Addrs:        []string{"localhost:6379"},
 		Mode:         "single",
 		KeyPrefix:    "myapp",
 		KeySeparator: ":",
 	}
 
-	repo, err := datarepository.CreateDataRepository("redis", config)
+	redisRepo, err := datarepository.CreateDataRepository("redis", redisConfig)
 	if err != nil {
-		log.Fatalf("Failed to create repository: %v", err)
+		log.Fatalf("Failed to create Redis repository: %v", err)
 	}
-	defer repo.Close()
+	defer redisRepo.Close()
 
-	ctx := context.Background()
-
-	// Create an item
-	id := datarepository.RedisIdentifier{EntityPrefix: "user", ID: "123"}
-	err = repo.Create(ctx, id, map[string]interface{}{"name": "John Doe", "age": 30})
+	// Create an in-memory repository
+	memoryConfig := datarepository.MemoryConfig{}
+	memoryRepo, err := datarepository.CreateDataRepository("memory", memoryConfig)
 	if err != nil {
-		log.Printf("Failed to create item: %v", err)
+		log.Fatalf("Failed to create in-memory repository: %v", err)
 	}
+	defer memoryRepo.Close()
 
-	// Read an item
-	var user map[string]interface{}
-	err = repo.Read(ctx, id, &user)
-	if err != nil {
-		log.Printf("Failed to read item: %v", err)
-	} else {
-		fmt.Printf("User: %v\n", user)
-	}
-
-	// List items
-	pattern := datarepository.RedisIdentifier{EntityPrefix: "user", ID: "*"}
-	identifiers, err := repo.List(ctx, pattern)
-	if err != nil {
-		log.Printf("Failed to list items: %v", err)
-	} else {
-		fmt.Printf("User IDs: %v\n", identifiers)
-	}
-
-	// Search
-	results, err := repo.Search(ctx, "@name:John", 0, 10, "age", "ASC")
-	if err != nil {
-		log.Printf("Failed to search: %v", err)
-	} else {
-		fmt.Printf("Search results: %v\n", results)
-	}
-
-	// Acquire a lock
-	locked, err := repo.AcquireLock(ctx, id, time.Second*30)
-	if err != nil {
-		log.Printf("Failed to acquire lock: %v", err)
-	} else {
-		fmt.Printf("Lock acquired: %v\n", locked)
-	}
-
-	// Release a lock
-	err = repo.ReleaseLock(ctx, id)
-	if err != nil {
-		log.Printf("Failed to release lock: %v", err)
-	}
-
-	// Publish a message
-	err = repo.Publish(ctx, "notifications", "Hello, World!")
-	if err != nil {
-		log.Printf("Failed to publish message: %v", err)
-	}
-
-	// Subscribe to a channel
-	ch, err := repo.Subscribe(ctx, "notifications")
-	if err != nil {
-		log.Printf("Failed to subscribe: %v", err)
-	} else {
-		go func() {
-			for msg := range ch {
-				fmt.Println("Received:", msg)
-			}
-		}()
-	}
+	// Use the repositories...
 }
+```
+
+### Available Repository Types
+
+You can check the available repository types using the `GetRegisteredRepositoryTypes` function:
+
+```go
+types := datarepository.GetRegisteredRepositoryTypes()
+fmt.Println("Available repository types:", types)
 ```
 
 ## Extending with New Backends
@@ -136,6 +90,13 @@ func init() {
 }
 ```
 
+After registration, you can create an instance of your new repository using:
+
+```go
+myConfig := MyNewConfig{} // Implement the Config interface
+repo, err := datarepository.CreateDataRepository("mynew", myConfig)
+```
+
 ## Key Features of the Redis Implementation
 
 - Comprehensive key management and validation
@@ -143,6 +104,13 @@ func init() {
 - Automatic key assembly and parsing
 - Robust error handling and input validation
 - Efficient search result parsing
+
+## Key Features of the In-Memory Implementation
+
+- Thread-safe operations using sync.RWMutex
+- Simple pattern matching for List operations
+- Basic search functionality with sorting and pagination
+- Efficient Publish-Subscribe mechanism
 
 ## Contributing
 
