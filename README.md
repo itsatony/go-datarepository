@@ -4,7 +4,7 @@
 
 ## Version
 
-v0.3.0
+v0.3.1
 
 ## Features
 
@@ -34,31 +34,42 @@ To create a repository, use the `CreateDataRepository` function with the desired
 package main
 
 import (
-	"context"
-	"fmt"
-	"log"
+  "context"
+  "fmt"
+  "log"
 
-	"github.com/itsatony/go-datarepository"
+  "github.com/itsatony/go-datarepository"
 )
 
 func main() {
-	// Create a Redis repository
-	redisConfig := datarepository.RedisConfig{
-		Addrs:        []string{"localhost:6379"},
-		Mode:         "single",
-		KeyPrefix:    "myapp",
-		KeySeparator: ":",
-	}
+  // Create a Redis repository
+  redisConfig := datarepository.RedisConfig{
+    ConnectionString: "single;myapp;;;;;;0;localhost:6379",
+  }
 
-	redisRepo, err := datarepository.CreateDataRepository("redis", redisConfig)
-	if err != nil {
-		log.Fatalf("Failed to create Redis repository: %v", err)
-	}
-	defer redisRepo.Close()
+  redisRepo, err := datarepository.CreateDataRepository("redis", redisConfig)
+  if err != nil {
+    log.Fatalf("Failed to create Redis repository: %v", err)
+  }
+  defer redisRepo.Close()
 
-	// Use the repository...
+  // Use the repository...
 }
 ```
+
+### Redis Configuration
+
+The Redis repository now supports a comprehensive connection string format that allows for various Redis setups, including single instance, sentinel, and cluster modes. The format is as follows:
+
+```text
+"mode;name;masterName;sentinelUsername;sentinelPassword;username;password;dbIndex;addr1,addr2,addr3,..."
+```
+
+Examples:
+
+- Single instance: `"single;myapp;;;;;;0;localhost:6379"`
+- Sentinel: `"sentinel;myapp;mymaster;sentineluser;sentinelpass;dbuser;dbpass;0;10.0.0.1:26379,10.0.0.2:26379"`
+- Cluster: `"cluster;myapp;;;;;;;10.0.0.1:6379,10.0.0.2:6379,10.0.0.3:6379"`
 
 ### Error Handling
 
@@ -75,11 +86,11 @@ You can use the provided helper functions to check for specific error types:
 ```go
 err := repo.Create(ctx, identifier, value)
 if datarepository.IsAlreadyExistsError(err) {
-	// Handle already exists error
+  // Handle already exists error
 } else if datarepository.IsInvalidIdentifierError(err) {
-	// Handle invalid identifier error
+  // Handle invalid identifier error
 } else if err != nil {
-	// Handle other errors
+  // Handle other errors
 }
 ```
 
@@ -89,15 +100,15 @@ To add a new storage backend, implement the `DataRepository` interface and regis
 
 ```go
 type MyNewRepository struct {
-	// ...
+  // ...
 }
 
 func NewMyNewRepository(config datarepository.Config) (datarepository.DataRepository, error) {
-	// Initialize and return your new repository
+  // Initialize and return your new repository
 }
 
 func init() {
-	datarepository.RegisterDataRepository("mynew", NewMyNewRepository)
+  datarepository.RegisterDataRepository("mynew", NewMyNewRepository)
 }
 ```
 
