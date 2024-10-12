@@ -41,6 +41,8 @@ var (
 
 type RedisConfig struct {
 	ConnectionString string
+	KeyPrefix        string
+	KeySeparator     string
 }
 
 type redisServerInfo struct {
@@ -106,6 +108,12 @@ func NewRedisRepository(config Config) (DataRepository, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: invalid config type for Redis repository", ErrInvalidInput)
 	}
+	if redisConfig.KeyPrefix == "" {
+		redisConfig.KeyPrefix = DefaultKeyPrefix
+	}
+	if redisConfig.KeySeparator == "" {
+		redisConfig.KeySeparator = DefaultKeySeparator
+	}
 
 	serverInfo, err := parseRedisServerInfoFromConfigString(redisConfig.ConnectionString)
 	if err != nil {
@@ -144,8 +152,8 @@ func NewRedisRepository(config Config) (DataRepository, error) {
 
 	return &RedisRepository{
 		client:    client,
-		prefix:    serverInfo.Name,
-		separator: ":",
+		prefix:    redisConfig.KeyPrefix,
+		separator: redisConfig.KeySeparator,
 	}, nil
 }
 

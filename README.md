@@ -4,7 +4,7 @@
 
 ## Version
 
-v0.3.1
+v0.3.2
 
 ## Features
 
@@ -44,7 +44,9 @@ import (
 func main() {
   // Create a Redis repository
   redisConfig := datarepository.RedisConfig{
-    ConnectionString: "single;myapp;;;;;;0;localhost:6379",
+    ConnectionString: "single;appConnectionX;;;;;;0;localhost:6379",
+    KeyPrefix: "superAppName",
+    KeySeparator: ":",
   }
 
   redisRepo, err := datarepository.CreateDataRepository("redis", redisConfig)
@@ -67,9 +69,9 @@ The Redis repository now supports a comprehensive connection string format that 
 
 Examples:
 
-- Single instance: `"single;myapp;;;;;;0;localhost:6379"`
-- Sentinel: `"sentinel;myapp;mymaster;sentineluser;sentinelpass;dbuser;dbpass;0;10.0.0.1:26379,10.0.0.2:26379"`
-- Cluster: `"cluster;myapp;;;;;;;10.0.0.1:6379,10.0.0.2:6379,10.0.0.3:6379"`
+- Single instance: `"single;appConnectionX;;;;;;0;localhost:6379"`
+- Sentinel: `"sentinel;appConnectionX;mymaster;sentineluser;sentinelpass;dbuser;dbpass;0;10.0.0.1:26379,10.0.0.2:26379"`
+- Cluster: `"cluster;appConnectionX;;;;;;;10.0.0.1:6379,10.0.0.2:6379,10.0.0.3:6379"`
 
 ### Error Handling
 
