@@ -23,6 +23,9 @@ var (
 
 	// ErrOperationFailed is returned when a repository operation fails for a reason other than those above
 	ErrOperationFailed = errors.New("operation failed")
+
+	// ErrNotSupported is returned when an operation is not supported by the repository
+	ErrNotSupported = errors.New("operation not supported")
 )
 
 // DataRepository defines a generic interface for data storage operations
@@ -76,6 +79,19 @@ type DataRepository interface {
 
 	// Close releases any resources held by the repository.
 	Close() error
+
+	// SetExpiration sets the expiration time for the given identifier.
+	SetExpiration(ctx context.Context, identifier EntityIdentifier, expiration time.Duration) error
+
+	// GetExpiration returns the expiration time for the given identifier.
+	GetExpiration(ctx context.Context, identifier EntityIdentifier) (time.Duration, error)
+
+	// AtomicIncrement increments the value of the given identifier atomically.
+	AtomicIncrement(ctx context.Context, identifier EntityIdentifier) (int64, error)
+
+	// Plugin system
+	RegisterPlugin(plugin RepositoryPlugin) error
+	GetPlugin(name string) (RepositoryPlugin, bool)
 }
 
 // EntityIdentifier represents a unique identifier for an entity
@@ -134,4 +150,30 @@ func IsInvalidInputError(err error) bool {
 // IsOperationFailedError checks if the given error is an ErrOperationFailed error
 func IsOperationFailedError(err error) bool {
 	return errors.Is(err, ErrOperationFailed)
+}
+
+// RepositoryPlugin defines the interface for database-specific plugins
+type RepositoryPlugin interface {
+	Name() string
+	Execute(ctx context.Context, command string, args ...interface{}) (interface{}, error)
+}
+
+// BaseRepository provides a basic implementation of the DataRepository interface
+type BaseRepository struct {
+	plugins map[string]RepositoryPlugin
+}
+
+// RegisterPlugin adds a new plugin to the repository
+func (br *BaseRepository) RegisterPlugin(plugin RepositoryPlugin) error {
+	if br.plugins == nil {
+		br.plugins = make(map[string]RepositoryPlugin)
+	}
+	br.plugins[plugin.Name()] = plugin
+	return nil
+}
+
+// GetPlugin returns the plugin with the given name
+func (br *BaseRepository) GetPlugin(name string) (RepositoryPlugin, bool) {
+	plugin, ok := br.plugins[name]
+	return plugin, ok
 }

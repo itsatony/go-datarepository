@@ -98,9 +98,16 @@ func (ri RedisIdentifier) String() string {
 }
 
 type RedisRepository struct {
+	BaseRepository
 	client    redis.UniversalClient
 	prefix    string
 	separator string
+}
+
+func (r *RedisRepository) initBaseRepository() {
+	r.BaseRepository = BaseRepository{
+		plugins: make(map[string]RepositoryPlugin),
+	}
 }
 
 func NewRedisRepository(config Config) (DataRepository, error) {
@@ -240,13 +247,18 @@ func (r *RedisRepository) Create(ctx context.Context, identifier EntityIdentifie
 
 	exists, err := r.client.Exists(ctx, key).Result()
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrOperationFailed, err)
+		return err
 	}
 	if exists == 1 {
 		return ErrAlreadyExists
 	}
 
-	return r.client.JSONSet(ctx, key, "$", value).Err()
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	return r.client.Do(ctx, "JSON.SET", key, ".", string(data)).Err()
 }
 
 func (r *RedisRepository) Read(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
@@ -255,15 +267,15 @@ func (r *RedisRepository) Read(ctx context.Context, identifier EntityIdentifier,
 		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
 
-	data, err := r.client.JSONGet(ctx, key, "$").Result()
+	data, err := r.client.Do(ctx, "JSON.GET", key).Result()
 	if err != nil {
 		if err == redis.Nil {
 			return ErrNotFound
 		}
-		return fmt.Errorf("%w: %v", ErrOperationFailed, err)
+		return err
 	}
 
-	return json.Unmarshal([]byte(data), value)
+	return json.Unmarshal([]byte(data.(string)), value)
 }
 
 func (r *RedisRepository) Update(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
@@ -274,13 +286,18 @@ func (r *RedisRepository) Update(ctx context.Context, identifier EntityIdentifie
 
 	exists, err := r.client.Exists(ctx, key).Result()
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrOperationFailed, err)
+		return err
 	}
 	if exists == 0 {
 		return ErrNotFound
 	}
 
-	return r.client.JSONSet(ctx, key, "$", value).Err()
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	return r.client.Do(ctx, "JSON.SET", key, ".", string(data)).Err()
 }
 
 func (r *RedisRepository) Delete(ctx context.Context, identifier EntityIdentifier) error {
@@ -426,4 +443,35 @@ func (r *RedisRepository) Ping(ctx context.Context) error {
 
 func (r *RedisRepository) Close() error {
 	return r.client.Close()
+}
+
+func (r *RedisRepository) SetExpiration(ctx context.Context, identifier EntityIdentifier, expiration time.Duration) error {
+	key, err := r.identifierToKey(identifier)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
+	}
+	return r.client.Expire(ctx, key, expiration).Err()
+}
+
+func (r *RedisRepository) GetExpiration(ctx context.Context, identifier EntityIdentifier) (time.Duration, error) {
+	key, err := r.identifierToKey(identifier)
+	if err != nil {
+		return time.Duration(0), fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
+	}
+	ttl, err := r.client.TTL(ctx, key).Result()
+	if err != nil {
+		return 0, err
+	}
+	if ttl < 0 {
+		return 0, ErrNotFound
+	}
+	return ttl, nil
+}
+
+func (r *RedisRepository) AtomicIncrement(ctx context.Context, identifier EntityIdentifier) (int64, error) {
+	key, err := r.identifierToKey(identifier)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
+	}
+	return r.client.Incr(ctx, key).Result()
 }

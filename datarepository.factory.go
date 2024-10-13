@@ -29,7 +29,17 @@ func CreateDataRepository(name string, config Config) (DataRepository, error) {
 		return nil, fmt.Errorf("unknown repository type: %s", name)
 	}
 
-	return factory(config)
+	repo, err := factory(config)
+	if err != nil {
+		return nil, err
+	}
+
+	// Initialize BaseRepository for all repository types
+	if baseRepo, ok := repo.(interface{ initBaseRepository() }); ok {
+		baseRepo.initBaseRepository()
+	}
+
+	return repo, nil
 }
 
 // GetRegisteredRepositoryTypes returns a list of all registered repository types

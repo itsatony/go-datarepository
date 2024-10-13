@@ -27,10 +27,12 @@ func (mi MemoryIdentifier) String() string {
 }
 
 type MemoryRepository struct {
+	BaseRepository
 	mu       sync.RWMutex
 	data     map[string]interface{}
 	locks    map[string]time.Time
 	channels map[string][]chan interface{}
+	expiries map[string]time.Time
 }
 
 func NewMemoryRepository(config Config) (DataRepository, error) {
@@ -63,7 +65,14 @@ func (r *MemoryRepository) Read(ctx context.Context, identifier EntityIdentifier
 	defer r.mu.RUnlock()
 
 	key := identifier.String()
-	if data, exists := r.data[key]; exists {
+	expiry, exists := r.expiries[key]
+	if exists && time.Now().After(expiry) {
+		delete(r.data, key)
+		delete(r.expiries, key)
+		return ErrNotFound
+	}
+	data, exists := r.data[key]
+	if exists {
 		// Assuming value is a pointer to the correct type
 		*(value.(*interface{})) = data
 		return nil
@@ -226,4 +235,72 @@ func (r *MemoryRepository) Close() error {
 	}
 	r.channels = make(map[string][]chan interface{})
 	return nil
+}
+
+func (r *MemoryRepository) SetExpiration(ctx context.Context, identifier EntityIdentifier, expiration time.Duration) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	key := identifier.String()
+	if _, exists := r.data[key]; !exists {
+		return ErrNotFound
+	}
+
+	if r.expiries == nil {
+		r.expiries = make(map[string]time.Time)
+	}
+	r.expiries[key] = time.Now().Add(expiration)
+	return nil
+}
+
+func (r *MemoryRepository) GetExpiration(ctx context.Context, identifier EntityIdentifier) (time.Duration, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	key := identifier.String()
+	if expiry, exists := r.expiries[key]; exists {
+		return time.Until(expiry), nil
+	}
+	return 0, ErrNotFound
+}
+
+func (r *MemoryRepository) AtomicIncrement(ctx context.Context, identifier EntityIdentifier) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	key := identifier.String()
+	value, exists := r.data[key]
+	if !exists {
+		r.data[key] = int64(1)
+		return 1, nil
+	}
+
+	switch v := value.(type) {
+	case int64:
+		v++
+		r.data[key] = v
+		return v, nil
+	default:
+		return 0, ErrInvalidInput
+	}
+}
+
+// Add a method to clean up expired keys
+func (r *MemoryRepository) cleanupExpired() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+	for key, expiry := range r.expiries {
+		if now.After(expiry) {
+			delete(r.data, key)
+			delete(r.expiries, key)
+		}
+	}
+}
+
+func (r *MemoryRepository) initBaseRepository() {
+	r.BaseRepository = BaseRepository{
+		plugins: make(map[string]RepositoryPlugin),
+	}
 }
