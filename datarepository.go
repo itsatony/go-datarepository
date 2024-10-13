@@ -52,7 +52,7 @@ type DataRepository interface {
 
 	// List returns entities matching the given pattern.
 	// Returns ErrInvalidIdentifier if the pattern is invalid.
-	List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, error)
+	List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, []interface{}, error)
 
 	// Search finds entities based on the given query.
 	// Returns ErrInvalidInput if the search parameters are invalid.

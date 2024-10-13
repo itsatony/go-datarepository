@@ -26,17 +26,19 @@ const (
 )
 
 var (
-	ErrEmptyKeyPart          = errors.New("empty key part used but not allowed")
-	ErrInvalidKeyFormat      = errors.New("invalid key format")
-	ErrInvalidKeyLength      = errors.New("key length out of allowed range")
-	ErrInvalidKeyPrefix      = errors.New("key does not start with the correct prefix")
-	ErrInvalidKeySuffix      = errors.New("key does not have at least one part after prefix")
-	ErrInvalidKeyChars       = errors.New("key contains invalid characters")
-	ErrInvalidEntityPrefix   = errors.New("invalid entity prefix: must start with a letter and contain only letters, numbers, and underscores")
-	ErrUnsupportedIdentifier = errors.New("unsupported identifier type")
+	ErrEmptyKeyPart           = errors.New("empty key part used but not allowed")
+	ErrInvalidKeyFormat       = errors.New("invalid key format")
+	ErrInvalidKeyLength       = errors.New("key length out of allowed range")
+	ErrInvalidKeyPrefix       = errors.New("key does not start with the correct prefix")
+	ErrInvalidKeySuffix       = errors.New("key does not have at least one part after prefix")
+	ErrInvalidKeyChars        = errors.New("key contains invalid characters")
+	ErrInvalidEntityPrefix    = errors.New("invalid entity prefix: must start with a letter and contain only letters, numbers, and underscores")
+	ErrUnsupportedIdentifier  = errors.New("unsupported identifier type")
+	ErrInvalidKeyPatternChars = errors.New("key-pattern contains invalid characters")
 
-	validKeyRegex     = regexp.MustCompile(`^[a-zA-Z0-9_:.-]+$`)
-	entityPrefixRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`)
+	validKeyRegex        = regexp.MustCompile(`^[a-zA-Z0-9_:.-]+$`)
+	validKeyPatternRegex = regexp.MustCompile(`^[a-zA-Z0-9_:.\-\?\*]+$`)
+	entityPrefixRegex    = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*$`)
 )
 
 type RedisConfig struct {
@@ -94,7 +96,7 @@ type RedisIdentifier struct {
 }
 
 func (ri RedisIdentifier) String() string {
-	return ri.EntityPrefix + ":" + ri.ID
+	return strings.Join([]string{ri.EntityPrefix, ri.ID}, DefaultKeySeparator)
 }
 
 type RedisRepository struct {
@@ -164,12 +166,14 @@ func NewRedisRepository(config Config) (DataRepository, error) {
 	}, nil
 }
 
-func (r *RedisRepository) validateKey(key string) error {
+func (r *RedisRepository) validateKey(key string, allowPattern bool) error {
 	if len(key) < MinKeyLength || len(key) > MaxKeyLength {
 		return fmt.Errorf("%w: key length must be between %d and %d characters", ErrInvalidKeyLength, MinKeyLength, MaxKeyLength)
 	}
 
-	if !validKeyRegex.MatchString(key) {
+	if allowPattern && !validKeyPatternRegex.MatchString(key) {
+		return fmt.Errorf("%w: key-patterns must contain only alphanumeric characters, underscores, colons, dots, and hyphens and stars", ErrInvalidKeyPatternChars)
+	} else if !allowPattern && !validKeyRegex.MatchString(key) {
 		return fmt.Errorf("%w: key must contain only alphanumeric characters, underscores, colons, dots, and hyphens", ErrInvalidKeyChars)
 	}
 
@@ -192,7 +196,8 @@ func (r *RedisRepository) validateKey(key string) error {
 }
 
 func (r *RedisRepository) validateEntityPrefix(entityPrefix string) error {
-	if !entityPrefixRegex.MatchString(entityPrefix) {
+	match := entityPrefixRegex.MatchString(entityPrefix)
+	if !match {
 		return ErrInvalidEntityPrefix
 	}
 	return nil
@@ -201,26 +206,45 @@ func (r *RedisRepository) validateEntityPrefix(entityPrefix string) error {
 func (r *RedisRepository) createKey(parts ...string) (string, error) {
 	allParts := append([]string{r.prefix}, parts...)
 	key := strings.Join(allParts, r.separator)
-	if err := r.validateKey(key); err != nil {
+	if err := r.validateKey(key, false); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+func (r *RedisRepository) createKeyPattern(parts ...string) (string, error) {
+	allParts := append([]string{r.prefix}, parts...)
+	key := strings.Join(allParts, r.separator)
+	err := r.validateKey(key, true)
+	if err != nil {
 		return "", err
 	}
 	return key, nil
 }
 
 func (r *RedisRepository) parseKey(key string) ([]string, error) {
-	if err := r.validateKey(key); err != nil {
+	if err := r.validateKey(key, false); err != nil {
 		return nil, err
 	}
 	return strings.Split(key, r.separator)[1:], nil
 }
 
-func (r *RedisRepository) identifierToKey(identifier EntityIdentifier) (string, error) {
+func (r *RedisRepository) identifierToKey(identifier EntityIdentifier, allowPattern bool) (string, error) {
 	switch id := identifier.(type) {
 	case RedisIdentifier:
-		if err := r.validateEntityPrefix(id.EntityPrefix); err != nil {
+		err := r.validateEntityPrefix(id.EntityPrefix)
+		// fmt.Printf("[]identifierToKey] ============== id EntityPrefix(%s) ID(%s) err(%v)\n", id.EntityPrefix, id.ID, err)
+		if err != nil {
 			return "", err
 		}
-		return r.createKey(id.EntityPrefix, id.ID)
+		var key string
+		if allowPattern {
+			key, err = r.createKeyPattern(id.EntityPrefix, id.ID)
+		} else {
+			key, err = r.createKey(id.EntityPrefix, id.ID)
+		}
+		fmt.Printf("[]identifierToKey] ============== allowPattern(%t) key(%s) (%v)\n", allowPattern, key, err)
+		return key, err
 	case SimpleIdentifier:
 		return r.createKey(string(id))
 	default:
@@ -240,7 +264,7 @@ func (r *RedisRepository) keyToIdentifier(key string) (EntityIdentifier, error) 
 }
 
 func (r *RedisRepository) Create(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
-	key, err := r.identifierToKey(identifier)
+	key, err := r.identifierToKey(identifier, false)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
@@ -262,7 +286,7 @@ func (r *RedisRepository) Create(ctx context.Context, identifier EntityIdentifie
 }
 
 func (r *RedisRepository) Read(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
-	key, err := r.identifierToKey(identifier)
+	key, err := r.identifierToKey(identifier, false)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
@@ -279,7 +303,7 @@ func (r *RedisRepository) Read(ctx context.Context, identifier EntityIdentifier,
 }
 
 func (r *RedisRepository) Update(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
-	key, err := r.identifierToKey(identifier)
+	key, err := r.identifierToKey(identifier, false)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
@@ -301,7 +325,7 @@ func (r *RedisRepository) Update(ctx context.Context, identifier EntityIdentifie
 }
 
 func (r *RedisRepository) Delete(ctx context.Context, identifier EntityIdentifier) error {
-	key, err := r.identifierToKey(identifier)
+	key, err := r.identifierToKey(identifier, false)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
@@ -317,30 +341,40 @@ func (r *RedisRepository) Delete(ctx context.Context, identifier EntityIdentifie
 	return nil
 }
 
-func (r *RedisRepository) List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, error) {
-	patternKey, err := r.identifierToKey(pattern)
+func (r *RedisRepository) List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, []interface{}, error) {
+	keyPattern, err := r.identifierToKey(pattern, true)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
+		return nil, nil, fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
 
-	keys, err := r.client.Keys(ctx, patternKey+"*").Result()
+	keys, err := r.client.Keys(ctx, keyPattern).Result()
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrOperationFailed, err)
+		return nil, nil, fmt.Errorf("%w: %v", ErrOperationFailed, err)
 	}
 
 	identifiers := make([]EntityIdentifier, 0, len(keys))
+	entities := make([]interface{}, 0, len(keys))
 	for _, key := range keys {
-		if err := r.validateKey(key); err != nil {
+		err := r.validateKey(key, false)
+		if err != nil {
 			continue // Skip invalid keys
 		}
 		identifier, err := r.keyToIdentifier(key)
 		if err != nil {
 			continue // Skip keys that can't be converted to identifiers
 		}
+		// retrieve the value
+		data, err := r.client.Do(ctx, "JSON.GET", key).Result()
+		if err != nil {
+			// return nil, nil, fmt.Errorf("%w: %v", ErrOperationFailed, err)
+			// nuts.L.Debugf("Error getting value for key %s: %v", key, err)
+			continue
+		}
+		entities = append(entities, data)
 		identifiers = append(identifiers, identifier)
 	}
 
-	return identifiers, nil
+	return identifiers, entities, nil
 }
 
 func (r *RedisRepository) Search(ctx context.Context, query string, offset, limit int, sortBy, sortDir string) ([]EntityIdentifier, error) {
@@ -374,7 +408,7 @@ func (r *RedisRepository) Search(ctx context.Context, query string, offset, limi
 		if !ok {
 			continue // Skip invalid keys
 		}
-		if err := r.validateKey(key); err != nil {
+		if err := r.validateKey(key, false); err != nil {
 			continue // Skip invalid keys
 		}
 		identifier, err := r.keyToIdentifier(key)
@@ -388,7 +422,7 @@ func (r *RedisRepository) Search(ctx context.Context, query string, offset, limi
 }
 
 func (r *RedisRepository) AcquireLock(ctx context.Context, identifier EntityIdentifier, ttl time.Duration) (bool, error) {
-	key, err := r.identifierToKey(identifier)
+	key, err := r.identifierToKey(identifier, false)
 	if err != nil {
 		return false, fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
@@ -401,7 +435,7 @@ func (r *RedisRepository) AcquireLock(ctx context.Context, identifier EntityIden
 }
 
 func (r *RedisRepository) ReleaseLock(ctx context.Context, identifier EntityIdentifier) error {
-	key, err := r.identifierToKey(identifier)
+	key, err := r.identifierToKey(identifier, false)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
@@ -446,7 +480,7 @@ func (r *RedisRepository) Close() error {
 }
 
 func (r *RedisRepository) SetExpiration(ctx context.Context, identifier EntityIdentifier, expiration time.Duration) error {
-	key, err := r.identifierToKey(identifier)
+	key, err := r.identifierToKey(identifier, false)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
@@ -454,7 +488,7 @@ func (r *RedisRepository) SetExpiration(ctx context.Context, identifier EntityId
 }
 
 func (r *RedisRepository) GetExpiration(ctx context.Context, identifier EntityIdentifier) (time.Duration, error) {
-	key, err := r.identifierToKey(identifier)
+	key, err := r.identifierToKey(identifier, false)
 	if err != nil {
 		return time.Duration(0), fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
@@ -469,7 +503,7 @@ func (r *RedisRepository) GetExpiration(ctx context.Context, identifier EntityId
 }
 
 func (r *RedisRepository) AtomicIncrement(ctx context.Context, identifier EntityIdentifier) (int64, error) {
-	key, err := r.identifierToKey(identifier)
+	key, err := r.identifierToKey(identifier, false)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	nuts "github.com/vaudience/go-nuts"
 )
 
 type MemoryConfig struct {
@@ -41,11 +43,18 @@ func NewMemoryRepository(config Config) (DataRepository, error) {
 		return nil, fmt.Errorf("invalid config type for Memory repository")
 	}
 
-	return &MemoryRepository{
+	repo := &MemoryRepository{
 		data:     make(map[string]interface{}),
 		locks:    make(map[string]time.Time),
 		channels: make(map[string][]chan interface{}),
-	}, nil
+	}
+
+	nuts.Interval(func() bool {
+		repo.cleanupExpired()
+		return true
+	}, 1*time.Minute, false)
+
+	return repo, nil
 }
 
 func (r *MemoryRepository) Create(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
@@ -104,22 +113,25 @@ func (r *MemoryRepository) Delete(ctx context.Context, identifier EntityIdentifi
 	return nil
 }
 
-func (r *MemoryRepository) List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, error) {
+func (r *MemoryRepository) List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, []interface{}, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	regex, err := regexp.Compile(strings.ReplaceAll(pattern.String(), "*", ".*"))
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid pattern", ErrInvalidInput)
+		return nil, nil, fmt.Errorf("%w: invalid pattern", ErrInvalidInput)
 	}
 
-	var result []EntityIdentifier
+	var results []interface{}
+	var ids []EntityIdentifier
 	for key := range r.data {
 		if regex.MatchString(key) {
-			result = append(result, MemoryIdentifier(key))
+			ids = append(ids, MemoryIdentifier(key))
+			entity := r.data[key]
+			results = append(results, entity)
 		}
 	}
-	return result, nil
+	return ids, results, nil
 }
 
 func (r *MemoryRepository) Search(ctx context.Context, query string, offset, limit int, sortBy, sortDir string) ([]EntityIdentifier, error) {
