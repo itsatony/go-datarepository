@@ -101,6 +101,15 @@ func (r *MemoryRepository) Update(ctx context.Context, identifier EntityIdentifi
 	return nil
 }
 
+func (r *MemoryRepository) Upsert(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	key := identifier.String()
+	r.data[key] = value
+	return nil
+}
+
 func (r *MemoryRepository) Delete(ctx context.Context, identifier EntityIdentifier) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

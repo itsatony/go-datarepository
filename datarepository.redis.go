@@ -243,7 +243,7 @@ func (r *RedisRepository) identifierToKey(identifier EntityIdentifier, allowPatt
 		} else {
 			key, err = r.createKey(id.EntityPrefix, id.ID)
 		}
-		fmt.Printf("[]identifierToKey] ============== allowPattern(%t) key(%s) (%v)\n", allowPattern, key, err)
+		// fmt.Printf("[]identifierToKey] ============== allowPattern(%t) key(%s) (%v)\n", allowPattern, key, err)
 		return key, err
 	case SimpleIdentifier:
 		return r.createKey(string(id))
@@ -314,6 +314,20 @@ func (r *RedisRepository) Update(ctx context.Context, identifier EntityIdentifie
 	}
 	if exists == 0 {
 		return ErrNotFound
+	}
+
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	return r.client.Do(ctx, "JSON.SET", key, ".", string(data)).Err()
+}
+
+func (r *RedisRepository) Upsert(ctx context.Context, identifier EntityIdentifier, value interface{}) error {
+	key, err := r.identifierToKey(identifier, false)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
 	}
 
 	data, err := json.Marshal(value)

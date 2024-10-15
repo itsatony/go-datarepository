@@ -40,6 +40,10 @@ type DataRepository interface {
 	// Returns ErrInvalidIdentifier if the identifier is invalid.
 	Read(ctx context.Context, identifier EntityIdentifier, value interface{}) error
 
+	// Upsert adds a new entity to the repository or updates an existing one.
+	// Returns ErrInvalidIdentifier if the identifier is invalid
+	Upsert(ctx context.Context, identifier EntityIdentifier, value interface{}) error
+
 	// Update modifies an existing entity in the repository.
 	// Returns ErrNotFound if the entity does not exist.
 	// Returns ErrInvalidIdentifier if the identifier is invalid.
