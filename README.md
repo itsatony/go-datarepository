@@ -4,7 +4,7 @@ go-datarepository is a flexible and extensible data repository interface for Go 
 
 ## Version
 
-v0.4.0
+v0.5.0
 
 ## Features
 

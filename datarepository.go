@@ -56,7 +56,7 @@ type DataRepository interface {
 
 	// List returns entities matching the given pattern.
 	// Returns ErrInvalidIdentifier if the pattern is invalid.
-	List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, []interface{}, error)
+	List(ctx context.Context, pattern string) ([]EntityIdentifier, []interface{}, error)
 
 	// Search finds entities based on the given query.
 	// Returns ErrInvalidInput if the search parameters are invalid.
@@ -110,6 +110,10 @@ type SimpleIdentifier string
 func (si SimpleIdentifier) String() string {
 	return string(si)
 }
+
+func emptyLogger(logLevel string, logContent string) {}
+
+type LogAdapter func(logLevel string, logContent string)
 
 // Config defines the configuration for a DataRepository
 type Config interface {

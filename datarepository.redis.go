@@ -45,6 +45,7 @@ type RedisConfig struct {
 	ConnectionString string
 	KeyPrefix        string
 	KeySeparator     string
+	logger           LogAdapter
 }
 
 type redisServerInfo struct {
@@ -104,11 +105,21 @@ type RedisRepository struct {
 	client    redis.UniversalClient
 	prefix    string
 	separator string
+	logger    LogAdapter
 }
 
 func (r *RedisRepository) initBaseRepository() {
 	r.BaseRepository = BaseRepository{
 		plugins: make(map[string]RepositoryPlugin),
+	}
+}
+
+func NewRedisConfig(connectionString string, prefix string, separator string, logger LogAdapter) Config {
+	return RedisConfig{
+		ConnectionString: connectionString,
+		KeyPrefix:        prefix,
+		KeySeparator:     separator,
+		logger:           logger,
 	}
 }
 
@@ -122,6 +133,9 @@ func NewRedisRepository(config Config) (DataRepository, error) {
 	}
 	if redisConfig.KeySeparator == "" {
 		redisConfig.KeySeparator = DefaultKeySeparator
+	}
+	if redisConfig.logger == nil {
+		redisConfig.logger = emptyLogger
 	}
 
 	serverInfo, err := parseRedisServerInfoFromConfigString(redisConfig.ConnectionString)
@@ -163,6 +177,7 @@ func NewRedisRepository(config Config) (DataRepository, error) {
 		client:    client,
 		prefix:    redisConfig.KeyPrefix,
 		separator: redisConfig.KeySeparator,
+		logger:    redisConfig.logger,
 	}, nil
 }
 
@@ -243,7 +258,7 @@ func (r *RedisRepository) identifierToKey(identifier EntityIdentifier, allowPatt
 		} else {
 			key, err = r.createKey(id.EntityPrefix, id.ID)
 		}
-		// fmt.Printf("[]identifierToKey] ============== allowPattern(%t) key(%s) (%v)\n", allowPattern, key, err)
+		// r.logger("DEBUG", fmt.Sprintf("[]identifierToKey] ============== allowPattern(%t) key(%s) (%v)\n", allowPattern, key, err))
 		return key, err
 	case SimpleIdentifier:
 		return r.createKey(string(id))
@@ -355,12 +370,14 @@ func (r *RedisRepository) Delete(ctx context.Context, identifier EntityIdentifie
 	return nil
 }
 
-func (r *RedisRepository) List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, []interface{}, error) {
-	keyPattern, err := r.identifierToKey(pattern, true)
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
-	}
+func (r *RedisRepository) List(ctx context.Context, pattern string) ([]EntityIdentifier, []interface{}, error) {
+	// keyPattern, err := r.identifierToKey(pattern, true)
+	// if err != nil {
+	// 	return nil, nil, fmt.Errorf("%w: %v", ErrInvalidIdentifier, err)
+	// }
+	keyPattern := pattern
 
+	// r.logger("DEBUG", fmt.Sprintf("go-datarepository.RedisRepository.List] keyPattern: (%s)", keyPattern))
 	keys, err := r.client.Keys(ctx, keyPattern).Result()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", ErrOperationFailed, err)
@@ -388,6 +405,7 @@ func (r *RedisRepository) List(ctx context.Context, pattern EntityIdentifier) ([
 		identifiers = append(identifiers, identifier)
 	}
 
+	// r.logger("DEBUG", fmt.Sprintf("go-datarepository.RedisRepository.List] identifiers: (%v) entities: (%v)", identifiers, entities))
 	return identifiers, entities, nil
 }
 

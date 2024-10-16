@@ -16,6 +16,7 @@ import (
 
 type MemoryConfig struct {
 	// Add any configuration options if needed
+	logger LogAdapter
 }
 
 func (c MemoryConfig) GetConnectionString() string {
@@ -35,18 +36,23 @@ type MemoryRepository struct {
 	locks    map[string]time.Time
 	channels map[string][]chan interface{}
 	expiries map[string]time.Time
+	logger   LogAdapter
 }
 
 func NewMemoryRepository(config Config) (DataRepository, error) {
-	_, ok := config.(MemoryConfig)
+	cfg, ok := config.(MemoryConfig)
 	if !ok {
 		return nil, fmt.Errorf("invalid config type for Memory repository")
+	}
+	if cfg.logger == nil {
+		cfg.logger = emptyLogger
 	}
 
 	repo := &MemoryRepository{
 		data:     make(map[string]interface{}),
 		locks:    make(map[string]time.Time),
 		channels: make(map[string][]chan interface{}),
+		logger:   cfg.logger,
 	}
 
 	nuts.Interval(func() bool {
@@ -122,11 +128,11 @@ func (r *MemoryRepository) Delete(ctx context.Context, identifier EntityIdentifi
 	return nil
 }
 
-func (r *MemoryRepository) List(ctx context.Context, pattern EntityIdentifier) ([]EntityIdentifier, []interface{}, error) {
+func (r *MemoryRepository) List(ctx context.Context, pattern string) ([]EntityIdentifier, []interface{}, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	regex, err := regexp.Compile(strings.ReplaceAll(pattern.String(), "*", ".*"))
+	regex, err := regexp.Compile(strings.ReplaceAll(pattern, "*", ".*"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: invalid pattern", ErrInvalidInput)
 	}
